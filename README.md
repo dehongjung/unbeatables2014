@@ -1,4 +1,4 @@
-# UnBeatables
+# UnBeatables - Robocup 2014
 
 UnBeatables is a humanoid robot soccer team from [University of Brasília](http://www.unb.br).
 This repository contains the code implemented for the Robocup 2014, João Pessoa, Brazil.
