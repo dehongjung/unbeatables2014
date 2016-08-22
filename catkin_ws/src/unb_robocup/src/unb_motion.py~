@@ -1,0 +1,184 @@
+#!/usr/bin/env python
+
+##############################################################################
+#                                INCLUDES
+##############################################################################
+import roslib; roslib.load_manifest('unb_robocup')
+import rospy
+
+import math
+#Naoqi
+from naoqi import ALProxy
+
+#Messages
+from std_msgs.msg import Bool
+from unb_robocup.msg import *
+
+#Services
+from unb_robocup.srv import *
+
+##############################################################################
+#                            NODE MAIN ROUTINE
+##############################################################################
+
+def main():
+
+    # Initialize Node
+    rospy.init_node('motion_node')
+    
+    # Initialize object
+    motion = Motion()    
+    try:
+        # Bloqueante
+        rospy.spin()
+    except KeyboardInterrupt:
+        rospy.loginfo('shut down unb_motion_node')
+        rospy.signal_shutdown('Keyboard interrupt') 
+
+##############################################################################
+#                            CLASS RobotPlot
+##############################################################################
+
+class Motion:
+
+    ##############################################################################
+    #                         CONSTRUCTORS AND DESTRUCTORS
+    ##############################################################################
+
+    def __init__(self):
+    
+         #Check Naoqi lib
+        self.al_robot_posture_proxy = ALProxy("ALRobotPosture","127.0.0.1",9559)
+        self.al_motion_proxy = ALProxy("ALMotion","127.0.0.1",9559)
+        self.al_navigation_proxy=ALProxy("ALNavigation","127.0.0.1",9559)
+        
+        self.al_motion_proxy.setFallManagerEnabled(False)
+        # Initialize subscribes
+        self.sub_move_to = rospy.Subscriber('/unb_robocup/motion/walk_to_topic', MoveToTopic,self.MoveToTopic)
+        self.sub_move_around_point = rospy.Subscriber('/unb_robocup/motion/move_around_point',MoveAroundPointTopic,self.MoveAroundPointTopic)
+        self.sub_move_to_navigate = rospy.Subscriber('/unb_robocup/motion/move_to_navigate', MoveToTopic,self.MoveToNavigate)
+        self.sub_set_security_distance = rospy.Subscriber('/unb_robocup/motion/set_security_distance', SetSecurityDistance,self.SetSecurityDistance)
+        
+        # Initialize publishers
+        self.pub_navigate_reached = rospy.Publisher('/unb_robocup/motion/navigate_reached', Bool)
+        self.pub_is_moving = rospy.Publisher('/unb_robocup/motion/is_moving', Bool)
+        self.pub_is_moving.publish(False)
+        self.pub_navigate_reached.publish(False)
+        # Initialize service client
+  
+        # Initialize service server
+        self.ss_move_joint = rospy.Service('/unb_robocup/motion/move_joint', MoveJoint , self.MoveJoint)
+        self.ss_goto_posture = rospy.Service('/unb_robocup/motion/goto_posture', GoToPosture , self.GoToPosture)
+        self.ss_stop_posture = rospy.Service('/unb_robocup/motion/stop_posture', StopPosture , self.StopPosture)
+        self.ss_stop_move = rospy.Service('/unb_robocup/motion/stop_move', StopMove , self.StopMove)
+        self.ss_move_to = rospy.Service('/unb_robocup/motion/move_to', MoveTo , self.MoveTo)
+        self.ss_move_around_point = rospy.Service('/unb_robocup/motion/move_around_point', MoveAroundPoint , self.MoveAroundPoint)
+        self.ss_rotate = rospy.Service('/unb_robocup/motion/rotate', Rotate , self.Rotate)
+        self.ss_move_toward = rospy.Service('/unb_robocup/motion/move_toward', MoveToward , self.MoveToward)
+        self.ss_stifness_on = rospy.Service('/unb_robocup/motion/stiffness_on', StiffnessOn , self.StiffnessOn)
+        self.ss_stifness_off = rospy.Service('/unb_robocup/motion/stiffness_off', StiffnessOff , self.StiffnessOff)
+        self.ss_kick_left = rospy.Service('/unb_robocup/motion/kick_left', KickLeft , self.KickLeft)
+        self.ss_kick_right = rospy.Service('/unb_robocup/motion/kick_right', KickRight , self.KickRight)
+        self.ss_get_joint_angle = rospy.Service('/unb_robocup/motion/get_joint_angle', GetJointAngle , self.GetJointAngle)
+        self.ss_change_joint_angle = rospy.Service('/unb_robocup/motion/change_joint_angle', ChangeJointAngle , self.ChangeJointAngle)
+        # 
+        self.do_once = True
+        
+       
+    ##############################################################################
+    #                    SERVICE SERVER CALLBACK FUNCTIONS
+    ##############################################################################
+    
+    def MoveJoint(self,req):
+        self.al_motion_proxy.setAngles(req.joint,req.angle,req.speed)
+        return MoveJointResponse()
+         
+    def GoToPosture(self,req):
+        self.al_robot_posture_proxy.goToPosture(req.posture,req.speed)
+        return GoToPostureResponse()
+ 
+    def StopPosture(self,req):
+        self.al_robot_posture_proxy.stopMove()
+        return StopPostureResponse()
+        
+    def StopMove(self,req):
+        self.pub_is_moving.publish(False)
+        self.al_motion_proxy.stopMove()
+        return StopMoveResponse()
+    
+    def MoveTo(self,req):
+        self.al_motion_proxy.moveTo(req.x,req.y,req.theta)
+        return MoveToResponse()
+        
+    def MoveAroundPoint(self,req):
+        self.x=req.radius*(1-math.cos(req.theta))
+        self.y=req.radius*math.sin(req.theta)
+        self.theta=-req.theta
+        self.al_motion_proxy.moveTo(self.x,self.y,self.theta)
+        return MoveAroundPointResponse()
+    
+    def Rotate(self,req):
+        self.al_motion_proxy.moveTo(0,0,req.theta)
+        return RotateResponse()
+    
+    def MoveToward(self,req):
+        self.al_motion_proxy.moveToward(req.x_vel_normalized,req.y_vel_normalized,req.theta_vel_normalized)
+        return MoveTowardResponse()
+    
+    def StiffnessOn(self,req):
+        self.al_motion_proxy.stiffnessInterpolation("Body",1.0,1.0)
+        return StiffnessOnResponse()  
+        
+    def StiffnessOff(self,req):
+        self.al_motion_proxy.stiffnessInterpolation("Body",0.0,1.0)
+        return StiffnessOffResponse() 
+        
+    def KickLeft(self,req):
+        return KickLeftResponse()  
+    
+    def KickRight(self,req):
+        return KickRightResponse()
+        
+    def GetJointAngle(self,req):
+        angle=self.al_motion_proxy.getAngles(req.joint,True)
+        return GetJointAngleResponse(angle)
+        
+    def ChangeJointAngle(self,req):
+        self.al_motion_proxy.changeAngles(req.joint,req.angle,req.speed)
+        return ChangeJointAngleResponse()  
+        
+    def MoveToTopic(self,req):
+        self.pub_is_moving.publish(True)
+        self.al_motion_proxy.moveTo(req.x,req.y,req.theta)
+        self.pub_is_moving.publish(False)  
+        
+    def MoveAroundPointTopic(self,req):
+        self.x=req.radius*(1-math.cos(req.theta))
+        self.y=req.radius*math.sin(req.theta)
+        self.theta=-req.theta
+        self.pub_is_moving.publish(True)
+        self.al_motion_proxy.moveTo(self.x,self.y,self.theta)
+        self.pub_is_moving.publish(False)  
+    
+    def MoveToNavigate(self,req):
+        self.pub_is_moving.publish(True)
+        reach_target=self.al_navigation_proxy.moveTo(req.x,req.y,req.theta)
+        if(reach_target==False):
+            self.al_robot_posture_proxy.goToPosture("StandInit",0.5)   
+        self.pub_is_moving.publish(False)  
+        self.pub_navigate_reached.publish(reach_target) 
+        
+    def SetSecurityDistance(self,req):
+        self.al_navigation_proxy.setSecurityDistance(req.distance)
+        
+                                 
+##############################################################################
+#                          RUNNING THE MAIN ROUTINE
+############################################################################## 
+
+if __name__ == '__main__':
+    try:
+        main()
+    except rospy.ROSInterruptException:
+        pass
+

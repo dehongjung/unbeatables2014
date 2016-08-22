@@ -1,0 +1,13 @@
+<launch>
+
+    <!--<include file="$(find nao_driver)/launch/nao_driver.launch" />-->
+
+    <node pkg="unb_robocup" type="unb_motion.py" name="unb_motion" />
+    <node pkg="unb_robocup" type="unb_gamectrl_comm_node" name="unb_gamecontroller_comm_node" />
+    <node pkg="unb_robocup" type="unb_vision.py" name="unb_vision" />
+    <node pkg="unb_robocup" type="unb_sonar.py" name="unb_sonar" />
+    <node pkg="unb_robocup" type="unb_imu.py" name="unb_imu" />
+    <!--<node pkg="unb_robocup" type="unb_get_image_node" name="unb_get_image_node" />-->
+    <!--<node pkg="unb_robocup" type="unb_fred.py" name="unb_fred" />-->
+
+</launch>

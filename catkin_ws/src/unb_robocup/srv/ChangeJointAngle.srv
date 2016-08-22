@@ -1,0 +1,5 @@
+#Servico para parar pose do NAO
+string joint
+float32 angle
+float32 speed
+---

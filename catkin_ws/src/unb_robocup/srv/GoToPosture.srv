@@ -1,0 +1,4 @@
+#Servico para mover o NAO para GoToPosture pose
+string posture
+float32 speed
+---

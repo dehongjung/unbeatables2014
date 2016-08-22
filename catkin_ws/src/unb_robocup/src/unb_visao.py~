@@ -1,0 +1,211 @@
+#!/usr/bin/env python
+
+##############################################################################
+#                                INCLUDES
+##############################################################################
+import roslib; roslib.load_manifest('unb_robocup')
+import rospy
+
+import cv2
+import cv2.cv
+import cv
+import numpy as np
+from naoqi import ALProxy
+from PIL import Image
+#import Image
+import vision_definitions
+#Services
+from unb_robocup.srv import TrackBall
+from unb_robocup.srv import TrackBallResponse
+
+##############################################################################
+#                            NODE MAIN ROUTINE
+##############################################################################
+
+def main():
+    
+    # Initialize Node
+    rospy.init_node('robot_states_node')
+    
+    # Initialize object
+    unb_vision = UnBVision()    
+    try:
+        unb_vision.Loop()
+    except KeyboardInterrupt:
+        unb_vision.cam_proxy.unsubscribe(unb_vision.name_id_0)
+        unb_vision.cam_proxy.unsubscribe(unb_vision.name_id_1)
+        rospy.signal_shutdown('Keyboard interrupt')      
+    
+##############################################################################
+#                            CLASS RobotPlot
+##############################################################################
+
+class UnBVision:
+
+
+    ##############################################################################
+    #                         CONSTRUCTORS AND DESTRUCTORS
+    ##############################################################################
+
+    def __init__(self):
+        #Wait for service   
+    
+        # Initialize service client
+        
+        # Initialize service server
+        self.ss_track_ball = rospy.Service('/unb_robocup/vision/track_ball', TrackBall , self.TrackBall)
+        
+        self.cam_proxy=ALProxy("ALVideoDevice","127.0.0.1",9559)
+        self.resolution=vision_definitions.kQVGA
+        self.color_space=vision_definitions.kYUVColorSpace
+        self.fps=30
+        self.name_id_0 =self.cam_proxy.subscribeCamera("Camera_0f",0,self.resolution,self.color_space,self.fps)
+        self.name_id_1 =self.cam_proxy.subscribeCamera("Camera_1f",1,self.resolution,self.color_space,self.fps)
+        
+        size = 320,240
+        self.frame=0
+        self.bola = 0
+        self.count = 0
+        self.X=0
+        self.Y=0
+        self.flag_get_data=1
+    ##############################################################################
+    #                         NODE FUNCTION
+    ##############################################################################
+
+    def Loop(self):
+
+        # Define rate
+        rate = rospy.Rate(30);
+           
+        # Wait for CTRL+C
+        while not rospy.is_shutdown():
+            #image = self.sc_get_image(1)
+            image_0=self.cam_proxy.getImageRemote(self.name_id_0)
+            self.cam_proxy.releaseImage(self.name_id_0)
+            
+            image_1=self.cam_proxy.getImageRemote(self.name_id_1)
+            self.cam_proxy.releaseImage(self.name_id_1)
+            
+            #image[6] contains the image data passed as an array of ASCII chars
+            data_0=image_0[6]
+            image_width_0=image_0[0]
+            image_height_0=image_0[1]
+            
+            self.frame_0 = Image.fromstring('RGB',(320, 240),data_0)
+            b, g, r = self.frame_0.split()
+            self.frame_0 = Image.merge('RGB', (r,g,b))
+            #self.frame_0.save("bla_0.png","PNG")
+            
+            #image[6] contains the image data passed as an array of ASCII chars
+            data_1=image_1[6]
+            image_width_1=image_1[0]
+            image_height_1=image_1[1]
+            
+            self.frame_1 = Image.fromstring("RGB",(image_width_1, image_height_1),data_1)
+            b, g, r = self.frame_1.split()
+            self.frame_1 = Image.merge('RGB', (r,g,b))
+            #self.frame_1.save("bla_1.png","PNG")
+            
+            self.frame=np.asarray(self.frame_0)
+            self.ProcessBall(self.frame)
+            
+            rate.sleep()
+        
+    ##############################################################################
+    #                         PROCESS FUNCTION
+    ##############################################################################
+    def ProcessBall(self,frame):
+        # Take each frame
+        size = 320,240
+        #frame = np.zeros(size, dtype=np.uint8)
+        #_, frame = cap.read()
+        
+
+        # Convert BGR to HSV
+        #hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        #img_gray = cv2.cvtColor(self.frame, cv2.COLOR_RGB2GRAY)
+        
+        #Gaussian Blur
+        ORANGETrackingFrames = cv2.blur(frame,(11,11))
+     
+
+        # define range of blue color in BGR
+        lower_blue = np.array([176,74,74], dtype=np.uint8)
+        upper_blue = np.array([255, 125, 170], dtype=np.uint8)
+
+        # Threshold the HSV image to get only blue colors
+        ORANGETrackingFrames = cv2.inRange(ORANGETrackingFrames, lower_blue, upper_blue)
+        
+        #Moments
+        M = cv2.moments(ORANGETrackingFrames)
+        if M['m00'] == 0.0:
+            M['m00'] = 1e-6
+
+        ORANGEmoment10 = float(M['m10']/M['m00'])
+        
+        ORANGEmoment01 = float(M['m01']/M['m00'])
+        
+        if M['m00'] == 0.0:
+            ORANGEmoment10 = 0.0
+            ORANGEmoment01 = 0.0
+            
+        x = ORANGEmoment10
+        y = ORANGEmoment01
+
+        img_contours = np.zeros(size, dtype=np.uint8)
+        img_contours = ORANGETrackingFrames.copy()
+
+        #Contours
+        contours, hierarchy = cv2.findContours(img_contours,cv2.RETR_TREE,cv2.CHAIN_APPROX_NONE)
+        
+        #print len(contours)
+        print "x = %f"% x
+        print "y = %f"% y
+        
+        contours_poly = [(0,0) for i in range(len(contours))]
+        boundRect = [(0,0,0,0) for i in range(len(contours))]
+        center = [(0,0) for i in range(len(contours))]
+        radius = [0.0 for i in range(len(contours))]
+        
+        for i in range(0, len(contours)):
+            contours_poly[i] = cv2.approxPolyDP(contours[i], 3, True)
+            boundRect[i] = cv2.boundingRect( contours_poly[i] )
+            center[i], radius[i] = cv2.minEnclosingCircle(contours_poly[i])
+        
+        self.flag_get_data=0
+        if x > 0 and y > 0:
+            for i in range(0, len(contours)):
+                if cv2.contourArea(contours[i]) > 10:
+                    check = cv2.pointPolygonTest( contours[i], (x, y), True)
+                    if check >= 0:
+                        self.bola = 1
+                        print self.bola
+                    else:
+                        self.bola=0
+                else:
+                    self.bola=0       
+        else:
+            self.bola=0                    
+                            
+         
+        self.x=x
+        self.y=y
+        self.flag_get_data=1
+    ##############################################################################
+    #                         Service Server Callbacks
+    ##############################################################################
+    def TrackBall(self,req):
+        while(self.flag_get_data==0):
+            i=1
+        return TrackBallResponse(self.x,self.y,self.bola)    
+    
+##############################################################################
+#                          RUNNING THE MAIN ROUTINE
+############################################################################## 
+
+if __name__ == '__main__':
+    try:
+        main()
+    except rospy.ROSInterruptException:
+        pass

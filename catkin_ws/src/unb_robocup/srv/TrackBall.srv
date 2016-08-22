@@ -1,0 +1,6 @@
+#Servico para parar pose do NAO
+---
+float32 x
+float32 y
+int32 camera
+int32 is_ball_detected

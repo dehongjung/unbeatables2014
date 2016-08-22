@@ -1,0 +1,4 @@
+#Servico para calcular histograma
+int32 flag
+---
+bool isTheSame

@@ -1,0 +1,4 @@
+---
+float32 xgoal
+float32 ygoal
+int32 goal

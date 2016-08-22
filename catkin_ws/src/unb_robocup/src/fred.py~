@@ -1,0 +1,230 @@
+#!/usr/bin/env python
+
+##############################################################################
+#                                INCLUDES
+##############################################################################
+import roslib; roslib.load_manifest('unb_robocup')
+import rospy
+import nao_msgs
+
+#Naoqi
+from naoqi import ALProxy
+
+#Messages
+from std_msgs.msg import String, ColorRGBA
+from nao_msgs.msg import FadeRGB #EarLeds, FaceLeds
+
+#Services
+from std_srvs.srv import Empty 
+
+from unb_robocup.srv import GetRobotState
+from unb_robocup.srv import SetRobotState
+from unb_robocup.srv import MoveHead
+from unb_robocup.srv import InitPose
+
+##############################################################################
+#                            NODE MAIN ROUTINE
+##############################################################################
+
+def main():
+    
+    #Disable default button behaviour
+    al_sentinel_proxy = ALProxy("ALSentinel","127.0.0.1",9559)
+    al_sentinel_proxy.enableDefaultActionSimpleClick(False)
+    al_sentinel_proxy.enableDefaultActionDoubleClick(False)
+    al_sentinel_proxy.enableDefaultActionTripleClick(False)
+
+    
+    # Initialize Node
+    rospy.init_node('robot_states_node')
+    
+    # Initialize object
+    robot_states = RobotStates()    
+    
+    robot_states.Loop()
+    
+    #Re-enable default button behaviour
+    al_sentinel_proxy.enableDefaultActionSimpleClick(True)
+    al_sentinel_proxy.enableDefaultActionDoubleClick(True)
+    al_sentinel_proxy.enableDefaultActionTripleClick(True)
+
+
+##############################################################################
+#                            CLASS RobotPlot
+##############################################################################
+
+class RobotStates:
+
+    ROBOT_STATE_NULL      = 99
+    ROBOT_STATE_INITIAL   = 0
+    ROBOT_STATE_READY     = 1
+    ROBOT_STATE_SET       = 2
+    ROBOT_STATE_PLAYING   = 3
+    ROBOT_STATE_PENALIZED = 5   #TODO: Get penalized state
+    ROBOT_STATE_FINISHED  = 4
+
+    ##############################################################################
+    #                         CONSTRUCTORS AND DESTRUCTORS
+    ##############################################################################
+
+    def __init__(self):
+    
+        #
+        self.state          = RobotStates.ROBOT_STATE_NULL
+        self.previous_state = RobotStates.ROBOT_STATE_NULL
+        #self.state          = RobotStates.ROBOT_STATE_INITIAL
+        #self.previous_state = RobotStates.ROBOT_STATE_NULL
+        self.state_changed  = False
+
+        # Initialize publishers
+        self.pub_fade_rgb = rospy.Publisher('/fade_rgb',FadeRGB)
+    
+        # Initialize service client
+        self.sc_body_stiffness_enable  = rospy.ServiceProxy("/body_stiffness/enable",  Empty)
+        self.sc_body_stiffness_disable = rospy.ServiceProxy("/body_stiffness/disable", Empty)
+        self.sc_get_robot_state        = rospy.ServiceProxy("/unb_robocup/robot_state/get", GetRobotState)
+        self.sc_init_pose              = rospy.ServiceProxy("/unb_robocup/motion/init_pose", InitPose)
+        self.sc_move_head              = rospy.ServiceProxy("/unb_robocup/motion/move_head", MoveHead)
+
+        
+        # Initialize service server
+        self.ss_set_robot_state        = rospy.Service("/unb_robotcup/robot_state/set", SetRobotState, self.setRobotState )
+        
+       
+    ##############################################################################
+    #                         NODE FUNCTION
+    ##############################################################################
+
+    def Loop(self):
+        # Define rate
+        rate = rospy.Rate(10);
+           
+        #Wait for service   
+        rospy.wait_for_service("/body_stiffness/enable")   
+           
+        # Enable robot stiffness
+        self.sc_body_stiffness_enable()
+
+        # Wait for CTRL+C
+        while not rospy.is_shutdown():
+                
+            # Request current state from GameController       
+            get_robot_state_response = self.sc_get_robot_state()
+            self.previous_state = self.state
+            self.state = get_robot_state_response.game_state
+            #TODO: Get penalized state (robot_state)
+                       
+            
+            # Check if state changed
+            if( self.state != self.previous_state ):
+                self.state_changed = True
+
+
+            ##########################################################
+            #                      INITIAL STATE
+            ##########################################################
+            if( self.state == RobotStates.ROBOT_STATE_INITIAL ):
+                #Turn stiffness on and go to initial pose
+                if( self.state_changed ):
+                    self.initialStateBehaviour()
+                    
+                    # Reset state_changed flag
+                    self.previous_state = self.state
+                    self.state_changed = False
+            
+            ##########################################################
+            #                      READY STATE
+            ##########################################################            
+            elif( self.state == RobotStates.ROBOT_STATE_READY   ):
+                # Change LED color if state recently changed
+                if( self.state_changed ):
+                    rospy.loginfo("STATE CHANGED TO READY")
+                    self.pub_fade_rgb.publish("ChestLeds",ColorRGBA(0.0,0.0,1.0,1.0),rospy.Duration(0.1))
+                    
+                    # Reset state_changed flag
+                    self.previous_state = self.state
+                    self.state_changed = False
+            
+            ##########################################################
+            #                      SET STATE
+            ##########################################################            
+            elif( self.state == RobotStates.ROBOT_STATE_SET   ):
+                # Change LED color if state recently changed
+                if( self.state_changed ):
+                    rospy.loginfo("STATE CHANGED TO SET")
+                    self.pub_fade_rgb.publish("ChestLeds",ColorRGBA(1.0,1.0,0.0,1.0),rospy.Duration(0.1))
+                    
+                    # Reset state_changed flag
+                    self.previous_state = self.state
+                    self.state_changed = False
+
+            ##########################################################
+            #                      PLAYING STATE
+            ##########################################################            
+            elif( self.state == RobotStates.ROBOT_STATE_PLAYING   ):
+                # Change LED color if state recently changed
+                if( self.state_changed ):
+                    rospy.loginfo("STATE CHANGED TO PLAYING")
+                    self.pub_fade_rgb.publish("ChestLeds",ColorRGBA(0.0,1.0,0.0,1.0),rospy.Duration(0.1))
+                    
+                    # Reset state_changed flag
+                    self.previous_state = self.state
+                    self.state_changed = False
+
+            ##########################################################
+            #                      PENALIZED STATE
+            ##########################################################            
+            elif( self.state == RobotStates.ROBOT_STATE_PENALIZED   ):
+                # Change LED color if state recently changed
+                if( self.state_changed ):
+                    rospy.loginfo("STATE CHANGED TO PENALIZED")
+                    self.pub_fade_rgb.publish("ChestLeds",ColorRGBA(1.0,0.0,0.0,1.0),rospy.Duration(0.1))
+                    
+                    # Reset state_changed flag
+                    self.previous_state = self.state
+                    self.state_changed = False
+
+            ##########################################################
+            #                      FINISHED STATE
+            ##########################################################            
+            elif( self.state == RobotStates.ROBOT_STATE_FINISHED   ):
+                # Change LED color if state recently changed
+                if( self.state_changed ):
+                    rospy.loginfo("STATE CHANGED TO FINISHED")
+                    self.pub_fade_rgb.publish("ChestLeds",ColorRGBA(0.0,0.0,0.0,0.0),rospy.Duration(0.1))
+                    
+                    # Reset state_changed flag
+                    self.previous_state = self.state
+                    self.state_changed = False
+
+
+            rate.sleep()
+        
+        # Desliga o stiffness depois do CTRL+C
+        self.sc_body_stiffness_disable()
+      
+    ##############################################################################
+    #                         STATE FUNCTIONS
+    ##############################################################################      
+    def initialStateBehaviour(self):
+        rospy.loginfo("OLHA EU NO INITIAL STATE")
+        # self.sc_init_pose()
+        self.sc_move_head(0.4, 1) 
+        
+    ##############################################################################
+    #                         Service Server Callbacks
+    ##############################################################################
+    def setRobotState( self , req ):
+        self.previous_state = self.state
+        self.state = req.state
+
+##############################################################################
+#                          RUNNING THE MAIN ROUTINE
+############################################################################## 
+
+if __name__ == '__main__':
+    try:
+        main()
+    except rospy.ROSInterruptException:
+        pass
+

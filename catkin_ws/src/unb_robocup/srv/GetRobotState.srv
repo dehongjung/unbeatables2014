@@ -1,0 +1,3 @@
+---
+int32 game_state
+int32 robot_state

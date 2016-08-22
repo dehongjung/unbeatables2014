@@ -1,0 +1,4 @@
+#Recieves a integer corresponding to the camera_ID(0-top; 1-bottom) and answer an ALImage 
+int32 camera_number
+---
+unsigned char[] image
